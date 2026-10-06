@@ -12,6 +12,7 @@ import requests
 import time
 import re
 
+from opencc import OpenCC
 from src.config import Config
 from src.formatters import strip_hidden_markdown_metadata
 
@@ -86,6 +87,8 @@ class TelegramSender:
             max_length = 4096
 
             sanitized_content = strip_hidden_markdown_metadata(content).strip()
+            sanitized_content = OpenCC("s2twp").convert(sanitized_content)
+            
             if not sanitized_content:
                 logger.warning("Telegram 消息内容为空，跳过推送")
                 return False
