@@ -826,6 +826,8 @@ OpenD 默认地址为 `127.0.0.1:11111`，可用 `FUTU_OPEND_HOST` / `FUTU_OPEND
 
 ### GitHub Actions 定时
 
+> 此 Fork 的每日分析工作流程設定 `TZ=Asia/Taipei`：報告生成時間、報告檔名日期與程式日誌使用台灣時間（UTC+8）。例如 UTC `2026-10-07 17:32:47` 會顯示為台灣時間 `2026-10-08 01:32:47`。`on.schedule.cron` 仍按 UTC 解讀，這項設定不會修復 GitHub 排程延遲；GitHub 介面與執行紀錄 API 的時間欄位也不受此設定影響。
+
 编辑 `.github/workflows/00-daily-analysis.yml`:
 
 ```yaml
