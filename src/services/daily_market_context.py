@@ -30,8 +30,8 @@ MARKET_REVIEW_HISTORY_CODE = "MARKET"
 MARKET_REVIEW_REPORT_TYPE = "market_review"
 
 
-_REGION_LABEL_ZH = {"cn": "A股", "hk": "港股", "us": "美股", "jp": "日股", "kr": "韩股"}
-_REGION_LABEL_EN = {"cn": "A-share", "hk": "HK", "us": "US", "jp": "Japan", "kr": "Korea"}
+_REGION_LABEL_ZH = {"cn": "A股", "hk": "港股", "us": "美股", "jp": "日股", "kr": "韩股", "tw": "台股"}
+_REGION_LABEL_EN = {"cn": "A-share", "hk": "HK", "us": "US", "jp": "Japan", "kr": "Korea", "tw": "Taiwan"}
 _VALID_REGIONS = frozenset(_REGION_LABEL_ZH)
 _LEGACY_BOTH_REGIONS = frozenset({"cn", "hk", "us"})
 _UNTRUSTED_MARKET_SUMMARY_SENTINELS = (
@@ -584,6 +584,14 @@ class DailyMarketContextService:
 
     @staticmethod
     def _record_supports_region(payload: Any, record_region: Any, region: str) -> bool:
+        if region == 'tw':
+            if isinstance(payload, Mapping):
+                markets = payload.get('markets')
+                if isinstance(markets, Mapping):
+                    scoped = markets.get('tw')
+                    return isinstance(scoped, Mapping) and scoped.get('region', 'tw') == 'tw'
+                return str(payload.get('region') or record_region or '').strip().lower() == 'tw'
+            return str(record_region or '').strip().lower() == 'tw'
         if isinstance(payload, Mapping):
             markets = payload.get("markets")
             if isinstance(markets, Mapping) and region in markets:
@@ -608,6 +616,16 @@ class DailyMarketContextService:
     ) -> Optional[DailyMarketContext]:
         normalized_region = _normalize_region(region)
         scoped_payload = _payload_for_region(payload, normalized_region)
+        if normalized_region == 'tw':
+            if not self._record_supports_region(payload, payload.get('region'), 'tw'):
+                return None
+            actual_date = _payload_trade_date(payload, 'tw')
+            if actual_date != trade_date:
+                return None
+            if scoped_payload is not payload:
+                # 台股子資料缺摘要時，不能回退為整份多市場（含中國）摘要。
+                fallback_summary = None
+                fallback_full_report = None
         summary = _extract_summary(scoped_payload, fallback_summary)
         if not summary:
             return None
@@ -786,6 +804,12 @@ def _coerce_date(value: Any) -> Optional[date]:
 
 def _payload_trade_date(payload: Mapping[str, Any], region: str) -> Optional[date]:
     scoped_payload = _payload_for_region(payload, region)
+    if region == 'tw':
+        supplied = [scoped_payload[key] for key in ('trade_date', 'date') if key in scoped_payload]
+        dates = [_coerce_date(value) for value in supplied]
+        if not dates or any(value is None for value in dates) or len(set(dates)) != 1:
+            return None
+        return dates[0]
     market_light = scoped_payload.get("market_light")
     candidates: List[Any] = [
         scoped_payload.get("trade_date"),
@@ -828,6 +852,10 @@ def _record_matches_target_date(
 ) -> bool:
     payload_date = _payload_trade_date(payload, region)
     language_matches = _record_report_language_matches(record, report_language)
+    if region == 'tw':
+        return payload_date == target_date and language_matches and (
+            not require_query_id_match or _record_matches_query_id(record, current_query_id)
+        )
     if payload_date is not None:
         if require_query_id_match:
             return _record_matches_query_id(record, current_query_id) and language_matches

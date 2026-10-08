@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+- [新功能] 此 Fork 新增 `MARKET_REVIEW_REGION=tw` 台股總覽，以 TWSE／TPEx 官方每日資料呈現加權與櫃買指數、成交股數及新臺幣成交金額；串接台灣交易日、台股新聞、提示詞與個股大盤背景，明確標示實際交易日與缺漏資料，每日 Actions 預設使用台股。
+
 - [修复] 此 Fork 的 GitHub 每日分析設定台灣時區，讓報告生成時間、報告檔名日期與程式日誌使用 UTC+8；保留原有 UTC cron 排程。
 
 - [修复] ETF 轮动按真实 A 股交易日历保留全池缺报价日期及末尾缺口，防止调仓顺延、周末信号提前和动量窗口缩短；历史日历不可用时明确停止计算。

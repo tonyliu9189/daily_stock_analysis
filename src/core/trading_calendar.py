@@ -650,9 +650,9 @@ def compute_effective_region(
     Returns:
         None: caller uses config default (check disabled)
         '': all relevant markets closed, skip market review
-        'cn' | 'hk' | 'us' | 'jp' | 'kr' | 'both': effective subset for today
+        'cn' | 'hk' | 'us' | 'jp' | 'kr' | 'tw' | 'both': effective subset for today
     """
-    markets = ("cn", "hk", "us", "jp", "kr")
+    markets = ("cn", "hk", "us", "jp", "kr", "tw")
     normalized = (config_region or "cn").strip().lower()
     if not normalized:
         normalized = "cn"

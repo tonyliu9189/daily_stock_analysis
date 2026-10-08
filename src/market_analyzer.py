@@ -49,8 +49,8 @@ _ENGLISH_SECTION_PATTERNS = {
 }
 
 _CHINESE_SECTION_PATTERNS = {
-    "market_summary": r"###\s*一、(?:盘面总览|市场总结)",
-    "index_commentary": r"###\s*二、(?:指数结构|指数点评|主要指数)",
+    "market_summary": r"###\s*一、(?:盘面总览|市場總結|盤面總覽|市场总结)",
+    "index_commentary": r"###\s*二、(?:指数结构|指數結構|指數點評|主要指數|指数点评|主要指数)",
     "sector_highlights": r"###\s*三、(?:板块主线|热点解读|板块表现)",
     "funds_sentiment": r"###\s*四、(?:资金与情绪|资金动向)",
     "news_catalysts": r"###\s*五、(?:消息催化|后市展望)",
@@ -72,9 +72,12 @@ class MarketIndex:
     volume: float = 0.0          # 成交量（手）
     amount: float = 0.0          # 成交额（元）
     amplitude: float = 0.0       # 振幅(%)
+    trade_date: str = ""         # 資料所屬的交易日
+    source: str = ""
+    source_url: str = ""
     
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        payload = {
             'code': self.code,
             'name': self.name,
             'current': self.current,
@@ -87,6 +90,14 @@ class MarketIndex:
             'amount': self.amount,
             'amplitude': self.amplitude,
         }
+        if self.trade_date:
+            payload.update(trade_date=self.trade_date, source=self.source, source_url=self.source_url)
+            if self.source in ('TWSE', 'TPEx'):
+                payload.update(volume_unit='shares', amount_currency='TWD')
+                # These official daily datasets do not supply OHLC or amplitude.
+                for key in ('open', 'high', 'low', 'amplitude'):
+                    payload.pop(key)
+        return payload
 
 
 @dataclass
@@ -151,7 +162,7 @@ class MarketAnalyzer:
         self.search_service = search_service
         self.analyzer = analyzer
         self.data_manager = DataFetcherManager()
-        self.region = region if region in ("cn", "us", "hk", "jp", "kr") else "cn"
+        self.region = region if region in ("cn", "us", "hk", "jp", "kr", "tw") else "cn"
         self.profile: MarketProfile = get_profile(self.region)
         self.strategy = get_market_strategy_blueprint(self.region)
 
@@ -307,6 +318,8 @@ class MarketAnalyzer:
             return "Japan market" if review_language == "en" else "日本市场"
         if self.region == "kr":
             return "Korea market" if review_language == "en" else "韩国市场"
+        if self.region == "tw":
+            return "Taiwan market" if review_language == "en" else "台股市場"
         if review_language == "en":
             return "A-share market"
         return "A股市场"
@@ -321,6 +334,8 @@ class MarketAnalyzer:
             return "JPY bn" if self._get_review_language() == "en" else "十亿日元"
         if self.region == "kr":
             return "KRW bn" if self._get_review_language() == "en" else "十亿韩元"
+        if self.region == "tw":
+            return "TWD 100m" if self._get_review_language() == "en" else "新臺幣億元"
         return "CNY 100m" if self._get_review_language() == "en" else "亿"
 
     def _format_turnover_value(self, amount_raw: float) -> str:
@@ -348,9 +363,12 @@ class MarketAnalyzer:
                 "hk": "HK Market Recap",
                 "jp": "Japan Market Recap",
                 "kr": "Korea Market Recap",
+                "tw": "Taiwan Market Recap",
             }
             market_name = market_names.get(self.region, "A-share Market Recap")
             return f"## {date} {market_name}"
+        if self.region == "tw":
+            return f"## {date} 台股市場總覽"
         return f"## {date} 大盘复盘"
 
     def _get_index_hint(self) -> str:
@@ -363,10 +381,18 @@ class MarketAnalyzer:
                 return "Analyze the key moves in the Nikkei 225, TOPIX, and other major Japanese indices."
             if self.region == "kr":
                 return "Analyze the key moves in the KOSPI, KOSDAQ, and other major Korean indices."
+            if self.region == "tw":
+                return "Compare Taiwan's TAIEX and TPEx indices and distinguish listed from OTC markets."
             return "Analyze the price action in the SSE, SZSE, ChiNext, and other major indices."
         return self.profile.prompt_index_hint
 
     def _get_strategy_prompt_block(self) -> str:
+        if self.region == 'tw' and self._get_review_language() == 'en':
+            return """## Strategy Blueprint: Taiwan Market Recap
+Compare TAIEX and TPEx, distinguish listed and OTC market performance, and explain Taiwan-relevant news.
+Use only supplied daily market volume and turnover. Do not infer volume expansion without prior-session data.
+Institutional flows, market breadth and sector rankings are unavailable; do not invent them.
+Describe next-session risks and observable conditions without promising returns."""
         if self.region == "hk" and self._get_review_language() == "en":
             return """## Strategy Blueprint: Hong Kong Market Regime Strategy
 Focus on HSI trend, southbound flow dynamics, and sector rotation to define next-session risk posture.
@@ -497,6 +523,12 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
 
     def _get_strategy_markdown_block(self, review_language: str | None = None) -> str:
         review_language = review_language or self._get_review_language()
+        if self.region == 'tw' and review_language == 'en':
+            return """### 6. Strategy Framework
+- **Index Structure**: Compare TAIEX with TPEx and distinguish listed from OTC equities.
+- **News Catalysts**: Evaluate Taiwan technology, earnings and exchange-rate developments using dated sources.
+- **Next-session Risks**: Wait for stock-level confirmation and avoid unsupported flow or volume claims.
+"""
         if self.region == "hk" and review_language == "en":
             return """### 6. Strategy Framework
 - **Trend Regime**: Classify the market as momentum, range, or risk-off based on HSI/HSTECH/HSCEI alignment.
@@ -561,6 +593,14 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         
         # 1. 获取主要指数行情（按 region 切换 A 股/美股）
         overview.indices = self._get_main_indices()
+        if self.region == "tw":
+            dates = [idx.trade_date for idx in overview.indices if idx.trade_date]
+            if dates:
+                overview.date = max(dates)
+            else:
+                from src.core.trading_calendar import get_effective_trading_date
+
+                overview.date = get_effective_trading_date('tw').isoformat()
 
         # 2. 获取涨跌统计（A 股有，美股无等效数据）
         if self.profile.has_market_stats:
@@ -601,7 +641,10 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                         prev_close=item['prev_close'],
                         volume=item['volume'],
                         amount=item['amount'],
-                        amplitude=item['amplitude']
+                        amplitude=item['amplitude'],
+                        trade_date=item.get('trade_date', ''),
+                        source=item.get('source', ''),
+                        source_url=item.get('source_url', ''),
                     )
                     indices.append(index)
 
@@ -743,6 +786,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
             "hk": "港股市场" if review_language == "zh" else "HK market",
             "jp": "日本股市" if review_language == "zh" else "Japan stock market",
             "kr": "韩国股市" if review_language == "zh" else "Korea stock market",
+            "tw": "台灣股市" if review_language == "zh" else "Taiwan stock market",
         }
         
         try:
@@ -1156,6 +1200,8 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 patterns["index_commentary"],
                 indices_block,
             )
+            if self.region == 'tw' and indices_block not in review:
+                review = f"{review.rstrip()}\n\n### 台股市場資料\n{indices_block}\n"
 
         if sector_block:
             original_review = review
@@ -1350,6 +1396,29 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         """构建指数行情表格"""
         if not overview.indices:
             return ""
+        if self.region == "tw":
+            english = self._get_review_language() == "en"
+            lines = [
+                "| Market index | Close | Change % | Volume (shares) | Turnover (TWD 100m) | Trade date |"
+                if english else "| 市場指數 | 收盤 | 漲跌幅 | 成交股數 | 成交金額（新臺幣億元） | 資料日期 |",
+                "|---|---:|---:|---:|---:|---|",
+            ]
+            for idx in overview.indices:
+                lines.append(
+                    f"| {idx.name} | {idx.current:.2f} | {idx.change_pct:+.2f}% | "
+                    f"{idx.volume:,.0f} | {idx.amount / 1e8:,.2f} | {idx.trade_date or overview.date} |"
+                )
+            sources = dict.fromkeys(
+                f"[{idx.source}]({idx.source_url})" for idx in overview.indices if idx.source_url
+            )
+            lines.append("\n" + ("Sources: " if english else "資料來源：") + '、'.join(sources))
+            lines.append(
+                "\nDaily market volume/turnover; breadth, institutional flows and sector rankings are unavailable."
+                if english else "\n成交量值為各市場官方每日統計；未取得漲跌家數、法人買賣超與類股排行。"
+            )
+            if {idx.code for idx in overview.indices} != {'TWII', 'TWOII'}:
+                lines.append("\nPartial market data." if english else "\n部分市場資料缺漏，未取得的指數不推估。")
+            return "\n".join(lines)
         if self._get_review_language() == "en":
             lines = [
                 f"| Index | Last | Change % | Open | High | Low | Amplitude | Turnover ({self._get_turnover_unit_label()}) |",
@@ -1661,6 +1730,8 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
         for idx in overview.indices:
             direction = "↑" if idx.change_pct > 0 else "↓" if idx.change_pct < 0 else "-"
             indices_text += f"- {idx.name}: {idx.current:.2f} ({direction}{abs(idx.change_pct):.2f}%)\n"
+        if self.region == "tw":
+            indices_text = self._build_indices_block(overview)
         
         # 板块信息
         top_sectors_text = self._format_ranking_summary(overview.top_sectors)
@@ -1730,6 +1801,14 @@ Concept lagging: {bottom_concepts_text if bottom_concepts_text else "N/A"}"""
                 data_limit_lines.append("- 该市场暂无行业板块/概念题材涨跌榜。")
             if data_limit_lines:
                 data_limits_block = "## 数据边界\n" + "\n".join(data_limit_lines)
+        if self.region == "tw":
+            data_limits_block = (
+                "## Data Limits\n- No breadth, institutional flows, sector rankings or prior-session turnover. "
+                "Do not invent these or infer volume expansion/contraction. Report only the supplied daily market data."
+                if review_language == "en" else
+                "## 資料邊界\n- 未提供漲跌家數、漲跌停、法人買賣超、類股排行及前期成交量值。"
+                "不得猜測或判斷放量、縮量；只採用已提供的官方每日資料。"
+            )
 
         data_no_indices_hint = (
             "注意：由于行情数据获取失败，请主要根据【市场新闻】进行定性分析和总结，不要编造具体的指数点位。"
@@ -1771,8 +1850,10 @@ Concept lagging: {bottom_concepts_text if bottom_concepts_text else "N/A"}"""
         output_template_sections = self._build_output_template_sections(review_language)
         zh_market_scope_name = self._get_market_scope_name("zh")
         zh_report_title = f"{overview.date} 大盘复盘"
-        if self.region in ("jp", "kr"):
+        if self.region in ("jp", "kr", "tw"):
             zh_report_title = f"{overview.date} {zh_market_scope_name}大盘复盘"
+        if self.region == "tw":
+            zh_report_title = f"{overview.date} 台股市場總覽"
         workflow_hint = (
             "报告要像交易员盘后工作台：先给结论，再按数据表、主线、催化、计划展开"
             if self.profile.has_market_stats or self.profile.has_sector_rankings
@@ -1843,6 +1924,7 @@ Output the report content directly, no extra commentary.
 - emoji 仅在标题处少量使用（每个标题最多1个）
 - {workflow_hint}
 - 不要重复列出已由系统注入的表格数据；正文负责解释表格背后的含义
+{('- 請使用台灣繁體中文；僅分析台灣市場，明確標示資料交易日，國際事件只說明對台股的影響。' if self.region == 'tw' else '')}
 {data_boundary_requirement}
 
 ---
@@ -1915,12 +1997,19 @@ Output the report content directly, no extra commentary.
                 market_mood = self._get_market_mood_text("strong_down", template_language)
         else:
             market_mood = self._get_market_mood_text("range", template_language)
+        if self.region == 'tw':
+            if mood_index is None:
+                market_mood = 'insufficient market data' if template_language == 'en' else '行情資料不足，無法判斷走勢'
+            elif mood_index.change_pct == 0:
+                market_mood = 'unchanged' if template_language == 'en' else '平盤'
         
         # 指数行情（简洁格式）
         indices_text = ""
         for idx in overview.indices[:4]:
             marker = self._get_index_change_arrow(idx.change_pct)
             indices_text += f"- **{idx.name}**: {idx.current:.2f} ({marker} {idx.change_pct:+.2f}%)\n"
+        if self.region == 'tw' and template_language == 'en':
+            indices_text = self._build_indices_block(overview)
         
         # 板块信息
         separator = ", " if template_language == "en" else "、"
@@ -1952,6 +2041,7 @@ Output the report content directly, no extra commentary.
                 "hk": "HK Market Recap",
                 "jp": "Japan Market Recap",
                 "kr": "Korea Market Recap",
+                "tw": "Taiwan Market Recap",
             }
             market_name = market_names.get(self.region, "A-share Market Recap")
             report = f"""## {overview.date} {market_name}
@@ -1973,7 +2063,7 @@ Market conditions can change quickly. The data above is for reference only and d
 """
             return report
 
-        market_labels = {"cn": "A股", "us": "美股", "hk": "港股", "jp": "日股", "kr": "韩股"}
+        market_labels = {"cn": "A股", "us": "美股", "hk": "港股", "jp": "日股", "kr": "韩股", "tw": "台股"}
         market_label = market_labels.get(self.region, "A股")
         dashboard_block = (
             self._build_stats_block(overview)
@@ -2012,7 +2102,8 @@ Market conditions can change quickly. The data above is for reference only and d
             if self.profile.has_market_stats
             else ""
         )
-        return f"""## {overview.date} 大盘复盘
+        template_title = self._get_review_title(overview.date) if self.region == "tw" else f"## {overview.date} 大盘复盘"
+        return f"""{template_title}
 
 > 今日{market_label}市场整体呈现**{market_mood}**态势，优先观察{summary_focus}。
 

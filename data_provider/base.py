@@ -3284,6 +3284,10 @@ class DataFetcherManager:
 
     def get_main_indices(self, region: str = "cn") -> List[Dict[str, Any]]:
         """获取主要指数实时行情（自动切换数据源）"""
+        if region == "tw":
+            from data_provider.taiwan_market import get_tw_market_indices
+
+            return get_tw_market_indices()
         if region == "cn":
             tickflow_fetcher = self._get_tickflow_fetcher()
             if tickflow_fetcher is not None:

@@ -229,6 +229,37 @@ KR_BLUEPRINT = MarketStrategyBlueprint(
     ],
 )
 
+TW_BLUEPRINT = MarketStrategyBlueprint(
+    region="tw",
+    title="台股盤後市場總覽",
+    positioning="依加權指數、櫃買指數及台灣市場新聞，整理下一交易日的觀察重點。",
+    principles=[
+        "區分上市與上櫃市場，國際事件只說明對台股的影響。",
+        "只採用已提供的指數、成交量值與新聞；未提供前期量值時不得推論放量或縮量。",
+        "法人買賣超、類股排行與市場廣度未取得時，明確標示資料不足，不猜測數字。",
+    ],
+    dimensions=[
+        StrategyDimension(
+            name="指數結構", objective="比較大型權值股與上櫃市場的強弱。",
+            checkpoints=["加權與櫃買指數是否同向", "漲跌幅是否明顯分歧"],
+        ),
+        StrategyDimension(
+            name="產業與消息", objective="整理半導體、電子供應鏈及重要公司事件。",
+            checkpoints=["消息來源與日期是否清楚", "新聞敘述與已取得行情是否一致"],
+        ),
+        StrategyDimension(
+            name="下一交易日風險", objective="提出可觀察的條件與風險，而非保證漲跌。",
+            checkpoints=["台灣交易日與休市安排", "匯率、海外市場與公司事件的影響"],
+        ),
+    ],
+    action_framework=[
+        "偏強：兩個指數同向上漲，仍需等待個股條件確認。",
+        "中性：指數分歧或消息不明，降低判斷確定性。",
+        "偏弱：指數同步轉弱，優先檢視持股風險。",
+    ],
+)
+
+
 def get_market_strategy_blueprint(region: str) -> MarketStrategyBlueprint:
     """Return strategy blueprint by market region."""
     if region == "us":
@@ -239,4 +270,6 @@ def get_market_strategy_blueprint(region: str) -> MarketStrategyBlueprint:
         return JP_BLUEPRINT
     if region == "kr":
         return KR_BLUEPRINT
+    if region == "tw":
+        return TW_BLUEPRINT
     return CN_BLUEPRINT
