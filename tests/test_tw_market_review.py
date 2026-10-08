@@ -10,6 +10,7 @@ import requests
 
 from data_provider.base import DataFetcherManager
 from data_provider.taiwan_market import get_tw_market_indices
+from data_provider.taiwan_market import _volume_comparison
 from src.config import Config
 from src.core.market_review import run_market_review
 from src.core.trading_calendar import compute_effective_region
@@ -18,10 +19,67 @@ from src.services.daily_market_context import DailyMarketContextService, format_
 from src.utils.market_review_region import normalize_market_review_region_strict
 
 
+@pytest.fixture(autouse=True)
+def mock_supplement_network(monkeypatch):
+    monkeypatch.setattr('data_provider.taiwan_market_stats.get_tw_market_supplements', lambda day: {})
+
+
 TWSE_ROW = {'Date': '1151007', 'TradeVolume': '10357959027',
             'TradeValue': '986280041197', 'TAIEX': '49806.37', 'Change': '-16.18'}
 TPEX_ROW = {'Date': '1151007', 'TradeVolume': '1220344663',
             'TradeAmount': '297728502045', 'TPExIndex': '430.46', 'Change': '-0.40'}
+
+
+def test_volume_comparison_uses_previous_sessions_excluding_current_day():
+    days = [date(2026, 9, 30), date(2026, 10, 1), date(2026, 10, 2),
+            date(2026, 10, 5), date(2026, 10, 6)]
+    rows = [(day, {'TradeVolume': '100', 'TradeValue': '200'}) for day in days]
+    rows.append((date(2026, 10, 7), {'TradeVolume': '999', 'TradeValue': '999'}))
+    result = _volume_comparison(rows, date(2026, 10, 7), 150, 180, 'TradeValue')
+    assert result['previous_session']['trade_date'] == '2026-10-06'
+    assert result['previous_session']['volume_change_pct'] == pytest.approx(50)
+    assert result['previous_session']['amount_change_pct'] == pytest.approx(-10)
+    assert result['previous_5_sessions']['volume_mean'] == 100
+    assert len(result['previous_5_sessions']['trade_dates']) == 5
+
+
+def test_missing_previous_day_and_zero_denominator_do_not_imply_volume_changes():
+    rows = [(date(2026, 10, 5), {'TradeVolume': '100', 'TradeValue': '200'}),
+            (date(2026, 10, 6), {'TradeVolume': '0', 'TradeValue': '0'})]
+    result = _volume_comparison(rows, date(2026, 10, 7), 150, 180, 'TradeValue')
+    assert result == {'previous_session': None, 'previous_5_sessions': None}
+
+
+def test_supplements_reach_prompt_report_and_payload_with_explicit_market_units(monkeypatch):
+    analyzer = tw_analyzer()
+    items = [{'code': 'TWII', 'name': '加權指數', 'current': 100, 'change': 0, 'change_pct': 0,
+              'open': 0, 'high': 0, 'low': 0, 'prev_close': 100, 'volume': 100, 'amount': 200,
+              'amplitude': 0, 'trade_date': '2026-10-07', 'source': 'TWSE', 'source_url': 'https://example.test'}]
+    analyzer.data_manager.get_main_indices.return_value = items
+    stats = {'trade_date': '2026-10-07', 'markets': {'twse': {
+        'institutions': {'trade_date': '2026-10-07', 'unit': 'TWD', 'source_url': 'https://example.test',
+                         'rows': [{'name': '投信', 'buy': 300000000, 'sell': 100000000, 'net': 200000000}]},
+        'breadth': {'trade_date': '2026-10-07', 'up': 0, 'down': 30, 'flat': 2,
+                    'universe': '官方股票欄', 'source_url': 'https://example.test', 'limit_up': 0},
+        'sectors': {'trade_date': '2026-10-07', 'source_url': 'https://example.test',
+                    'rows': [{'name': '電子類指數', 'change_pct': -1.2}]},
+    }, 'tpex': {'institutions': None, 'breadth': None, 'sectors': None,
+                'missing_reasons': {'sectors': '指定日未取得'}}}}
+    def load(day):
+        assert day == '2026-10-07'
+        return stats
+    monkeypatch.setattr('data_provider.taiwan_market_stats.get_tw_market_supplements', load)
+    overview = analyzer.get_market_overview()
+    prompt = analyzer._build_review_prompt(overview, [])
+    report = analyzer._generate_template_review(overview, [])
+    for text in (prompt, report):
+        assert '| 投信 | 3.00 | 1.00 | +2.00 |' in text
+        assert '0 / 30 / 2' in text
+        assert '電子類指數 -1.20%' in text
+        assert '指定日未取得' in text
+    payload = analyzer.build_market_review_payload(overview, [], report)
+    assert payload['taiwan_supplements'] == stats
+    assert 'market_light' not in payload and 'breadth' not in payload
 
 
 def response(rows):
@@ -151,6 +209,8 @@ def test_tw_english_title_and_prompt_do_not_use_a_share_market():
     assert analyzer._get_review_title('2026-10-07') == '## 2026-10-07 Taiwan Market Recap'
     assert 'TAIEX' in analyzer._get_index_hint()
     assert analyzer._get_turnover_unit_label() == 'TWD 100m'
+    assert 'rankings are unavailable' not in analyzer._get_strategy_prompt_block()
+    assert 'supplied official institutional flows' in analyzer._get_strategy_prompt_block()
 
 
 def test_tw_news_search_passes_taiwan_context_to_search_service():

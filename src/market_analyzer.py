@@ -75,6 +75,7 @@ class MarketIndex:
     trade_date: str = ""         # 資料所屬的交易日
     source: str = ""
     source_url: str = ""
+    volume_comparison: Dict[str, Any] = field(default_factory=dict)
     
     def to_dict(self) -> Dict[str, Any]:
         payload = {
@@ -94,6 +95,7 @@ class MarketIndex:
             payload.update(trade_date=self.trade_date, source=self.source, source_url=self.source_url)
             if self.source in ('TWSE', 'TPEx'):
                 payload.update(volume_unit='shares', amount_currency='TWD')
+                payload['volume_comparison'] = self.volume_comparison
                 # These official daily datasets do not supply OHLC or amplitude.
                 for key in ('open', 'high', 'low', 'amplitude'):
                     payload.pop(key)
@@ -118,6 +120,7 @@ class MarketOverview:
     bottom_sectors: List[Dict] = field(default_factory=list)  # 跌幅前5板块
     top_concepts: List[Dict] = field(default_factory=list)    # 涨幅前5概念
     bottom_concepts: List[Dict] = field(default_factory=list) # 跌幅前5概念
+    taiwan_supplements: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -391,7 +394,7 @@ class MarketAnalyzer:
             return """## Strategy Blueprint: Taiwan Market Recap
 Compare TAIEX and TPEx, distinguish listed and OTC market performance, and explain Taiwan-relevant news.
 Use only supplied daily market volume and turnover. Do not infer volume expansion without prior-session data.
-Institutional flows, market breadth and sector rankings are unavailable; do not invent them.
+Use supplied official institutional flows, stock breadth and sector price-index rankings, respecting each market's date and universe. Do not invent missing statistics.
 Describe next-session risks and observable conditions without promising returns."""
         if self.region == "hk" and self._get_review_language() == "en":
             return """## Strategy Blueprint: Hong Kong Market Regime Strategy
@@ -601,6 +604,10 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 from src.core.trading_calendar import get_effective_trading_date
 
                 overview.date = get_effective_trading_date('tw').isoformat()
+            if overview.indices:
+                from data_provider.taiwan_market_stats import get_tw_market_supplements
+
+                overview.taiwan_supplements = get_tw_market_supplements(overview.date)
 
         # 2. 获取涨跌统计（A 股有，美股无等效数据）
         if self.profile.has_market_stats:
@@ -645,6 +652,7 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                         trade_date=item.get('trade_date', ''),
                         source=item.get('source', ''),
                         source_url=item.get('source_url', ''),
+                        volume_comparison=item.get('volume_comparison', {}),
                     )
                     indices.append(index)
 
@@ -1109,6 +1117,9 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 "turnover_unit": self._get_turnover_unit_label(),
             }
 
+        if self.region == 'tw':
+            payload['taiwan_supplements'] = overview.taiwan_supplements
+
         return payload
 
     def _supports_market_light(self) -> bool:
@@ -1412,10 +1423,73 @@ Focus on index trend, liquidity, and sector rotation to shape the next-session t
                 f"[{idx.source}]({idx.source_url})" for idx in overview.indices if idx.source_url
             )
             lines.append("\n" + ("Sources: " if english else "資料來源：") + '、'.join(sources))
-            lines.append(
-                "\nDaily market volume/turnover; breadth, institutional flows and sector rankings are unavailable."
-                if english else "\n成交量值為各市場官方每日統計；未取得漲跌家數、法人買賣超與類股排行。"
-            )
+            lines.append("\n### Volume / turnover comparison" if english else "\n### 成交量值比較")
+            for idx in overview.indices:
+                for key, label in (
+                    ('previous_session', 'Previous session' if english else '前一交易日'),
+                    ('previous_5_sessions', 'Previous 5 sessions mean' if english else '前五個交易日平均'),
+                ):
+                    comparison = idx.volume_comparison.get(key)
+                    if comparison:
+                        dates = comparison.get('trade_dates') or [comparison['trade_date']]
+                        lines.append(
+                            f"- {idx.name} / {label} ({', '.join(dates)}): "
+                            + ("volume " if english else "成交股數 ")
+                            + f"{comparison['volume_change_pct']:+.2f}%, "
+                            + ("turnover " if english else "成交金額 ")
+                            + f"{comparison['amount_change_pct']:+.2f}%"
+                        )
+                    else:
+                        lines.append(f"- {idx.name} / {label}: " + (
+                            "insufficient comparable history" if english else "歷史樣本不足，不判斷放量／縮量"
+                        ))
+            lines.append("\n### Market supplements" if english else "\n### 法人、漲跌家數與類股")
+            markets = overview.taiwan_supplements.get('markets', {})
+            for market, name in (('twse', 'TWSE / 上市'), ('tpex', 'TPEx / 上櫃')):
+                data = markets.get(market, {})
+                for kind, label in (
+                    ('institutions', 'Institutional flows' if english else '法人買賣超'),
+                    ('breadth', 'Market breadth' if english else '漲跌家數'),
+                    ('sectors', 'Sector price indices' if english else '類股價格指數排行'),
+                ):
+                    stats = data.get(kind)
+                    lines.append(f"\n**{name} — {label}**")
+                    if not stats:
+                        reason = data.get('missing_reasons', {}).get(kind, '未取得指定日資料')
+                        lines.append(('Unavailable: ' if english else '資料缺漏：') + reason)
+                        continue
+                    lines.append(f"{stats['trade_date']} / [official source]({stats['source_url']})")
+                    if kind == 'institutions':
+                        if stats.get('universe'):
+                            lines.append(f"{'Universe' if english else '統計範圍'}: {stats['universe']}")
+                        lines.append('')
+                        lines.extend([
+                            '| Institution | Buy (TWD 100m) | Sell (TWD 100m) | Net (TWD 100m) |'
+                            if english else '| 法人 | 買進（億元） | 賣出（億元） | 買賣超（億元） |',
+                            '|---|---:|---:|---:|',
+                        ])
+                        for row in stats['rows']:
+                            lines.append(f"| {row['name']} | {row['buy'] / 1e8:,.2f} | "
+                                         f"{row['sell'] / 1e8:,.2f} | {row['net'] / 1e8:+,.2f} |")
+                    elif kind == 'breadth':
+                        lines.append(
+                            f"{'Advancing / declining / unchanged' if english else '上漲／下跌／平盤'}: "
+                            f"{stats['up']} / {stats['down']} / {stats['flat']}"
+                        )
+                        lines.append(f"{'Universe' if english else '統計範圍'}: {stats['universe']}")
+                        for key, text in (('limit_up', '漲停'), ('limit_down', '跌停'),
+                                          ('untraded', '未成交'), ('no_comparison', '無比較價格')):
+                            if stats.get(key) is not None:
+                                lines.append(f"- {text}: {stats[key]}")
+                    else:
+                        ranked = sorted(stats['rows'], key=lambda row: row['change_pct'], reverse=True)
+                        for title, rows in (('Highest' if english else '漲跌幅最高', ranked[:5]),
+                                            ('Lowest' if english else '漲跌幅最低', ranked[-5:][::-1])):
+                            lines.append(f"- {title}: " + '、'.join(
+                                f"{row['name']} {row['change_pct']:+.2f}%" for row in rows
+                            ))
+                        lines.append('Official sector price indices; not constituent averages or turnover shares.'
+                                     if english else '依官方類股價格指數排行；不以個股平均或成交比重代替。')
             if {idx.code for idx in overview.indices} != {'TWII', 'TWOII'}:
                 lines.append("\nPartial market data." if english else "\n部分市場資料缺漏，未取得的指數不推估。")
             return "\n".join(lines)
@@ -1803,11 +1877,12 @@ Concept lagging: {bottom_concepts_text if bottom_concepts_text else "N/A"}"""
                 data_limits_block = "## 数据边界\n" + "\n".join(data_limit_lines)
         if self.region == "tw":
             data_limits_block = (
-                "## Data Limits\n- No breadth, institutional flows, sector rankings or prior-session turnover. "
-                "Do not invent these or infer volume expansion/contraction. Report only the supplied daily market data."
+                "## Data Limits\n- Use only supplied statistics and volume comparisons. "
+                "Compare shares and TWD turnover separately, naming the reference dates; missing comparisons are unavailable. "
+                "Do not invent missing breadth, institutional flows or sector rankings."
                 if review_language == "en" else
-                "## 資料邊界\n- 未提供漲跌家數、漲跌停、法人買賣超、類股排行及前期成交量值。"
-                "不得猜測或判斷放量、縮量；只採用已提供的官方每日資料。"
+                "## 資料邊界\n- 只使用已提供的統計與量值比較；成交股數、成交金額分開比較，注明基準日期。"
+                "缺少歷史樣本時不判斷放量／縮量；未提供的法人、漲跌家數或類股資料不得猜測。"
             )
 
         data_no_indices_hint = (

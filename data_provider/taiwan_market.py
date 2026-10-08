@@ -7,6 +7,7 @@ from datetime import date
 from typing import Any, Dict, List
 
 import requests
+import exchange_calendars as xcals
 
 from src.core.trading_calendar import get_effective_trading_date
 
@@ -27,6 +28,43 @@ def _trade_date(value: Any) -> date:
     if len(text) != 8:
         raise ValueError('台股行情日期長度無效')
     return date.fromisoformat(f'{text[:4]}-{text[4:6]}-{text[6:8]}')
+
+
+def _volume_comparison(dated_rows, trade_date, volume, amount, amount_key):
+    """比較實際前一交易日及前五個交易日，不以缺漏資料冒充完整樣本。"""
+    result = {'previous_session': None, 'previous_5_sessions': None}
+    try:
+        sessions = xcals.get_calendar('XTAI').sessions_window(trade_date.isoformat(), -6)
+        previous_dates = [session.date() for session in sessions if session.date() < trade_date]
+        history = {}
+        for row_date, row in dated_rows:
+            if row_date in previous_dates:
+                try:
+                    values = (_number(row['TradeVolume']), _number(row[amount_key]))
+                    if all(value > 0 for value in values):
+                        history[row_date] = values
+                except (KeyError, ValueError, TypeError):
+                    continue
+        if previous_dates and previous_dates[-1] in history:
+            prior_volume, prior_amount = history[previous_dates[-1]]
+            result['previous_session'] = {
+                'trade_date': previous_dates[-1].isoformat(),
+                'volume': prior_volume, 'amount': prior_amount,
+                'volume_change_pct': (volume / prior_volume - 1) * 100,
+                'amount_change_pct': (amount / prior_amount - 1) * 100,
+            }
+        if len(previous_dates) == 5 and all(day in history for day in previous_dates):
+            mean_volume = sum(history[day][0] for day in previous_dates) / 5
+            mean_amount = sum(history[day][1] for day in previous_dates) / 5
+            result['previous_5_sessions'] = {
+                'trade_dates': [day.isoformat() for day in previous_dates],
+                'volume_mean': mean_volume, 'amount_mean': mean_amount,
+                'volume_change_pct': (volume / mean_volume - 1) * 100,
+                'amount_change_pct': (amount / mean_amount - 1) * 100,
+            }
+    except Exception as exc:
+        logger.warning('[台股總覽] 量值比較無法完成：%s', exc)
+    return result
 
 
 def get_tw_market_indices() -> List[Dict[str, Any]]:
@@ -72,6 +110,7 @@ def get_tw_market_indices() -> List[Dict[str, Any]]:
                 'open': 0.0, 'high': 0.0, 'low': 0.0, 'amplitude': 0.0,
                 'volume': volume, 'amount': amount, 'trade_date': trade_date.isoformat(),
                 'source': source, 'source_url': url,
+                'volume_comparison': _volume_comparison(dated_rows, trade_date, volume, amount, amount_key),
             })
         except (requests.RequestException, TypeError, ValueError, KeyError) as exc:
             logger.warning('[台股總覽] %s 每日行情取得失敗：%s', source, exc)
