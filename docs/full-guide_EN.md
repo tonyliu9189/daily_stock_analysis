@@ -1,5 +1,7 @@
 # Complete Configuration & Deployment Guide
 
+For the Taiwan fork, a missing or delayed TWSE FMTQIK OpenAPI response falls back to the official date-specific FMTQIK report. The requested trading date and share/TWD units must match; incomplete monthly history remains unavailable for volume comparisons. See [Taiwan infographics](taiwan-infographics.md).
+
 This document contains the complete configuration guide for the AI Stock Analysis System, intended for users who need advanced features or special deployment methods.
 
 > Quick start guide available in [README_EN.md](README_EN.md). This document covers advanced configuration.
@@ -107,7 +109,9 @@ Go to your forked repo → `Settings` → `Secrets and variables` → `Actions` 
 
 > *Note: Configure at least one channel; multiple channels will all receive notifications. Startup validation reports missing paired Telegram / email fields and common Webhook URLs that do not start with `http://` or `https://`.
 >
-> The default `00-daily-analysis.yml` in this repository only exports fixed Secret / Variable names. Arbitrary numbered env vars such as `STOCK_GROUP_1` and `EMAIL_GROUP_1` are not auto-injected into the job, so grouped email routing is not available in the stock workflow unless you explicitly extend the workflow's `env:` mapping in your own fork. Actions now maps `CUSTOM_WEBHOOK_BODY_TEMPLATE`, `WEBHOOK_VERIFY_SSL`, `FEISHU_WEBHOOK_SECRET`, `FEISHU_WEBHOOK_KEYWORD`, `PUSHPLUS_TOPIC`, `NTFY_URL`, `NTFY_TOKEN`, `GOTIFY_URL`, `GOTIFY_TOKEN`, the P3 notification route keys, and the P4 notification noise-control keys; `MARKDOWN_TO_IMAGE_CHANNELS` and `MERGE_EMAIL_NOTIFICATION` remain behavior toggles outside the default workflow mapping.
+> This fork defaults to Traditional Chinese Taiwan infographics with one card per stock. Telegram sends the image only when rendering succeeds; email includes the card and the full report with source links. Missing render dependencies fall back to text. See [Taiwan infographics](taiwan-infographics.md).
+
+> The default `00-daily-analysis.yml` in this repository only exports fixed Secret / Variable names. Arbitrary numbered env vars such as `STOCK_GROUP_1` and `EMAIL_GROUP_1` are not auto-injected into the job, so grouped email routing is not available in the stock workflow unless you explicitly extend the workflow's `env:` mapping in your own fork. Actions now maps `CUSTOM_WEBHOOK_BODY_TEMPLATE`, `WEBHOOK_VERIFY_SSL`, `FEISHU_WEBHOOK_SECRET`, `FEISHU_WEBHOOK_KEYWORD`, `PUSHPLUS_TOPIC`, `NTFY_URL`, `NTFY_TOKEN`, `GOTIFY_URL`, `GOTIFY_TOKEN`, the P3 notification route keys, and the P4 notification noise-control keys; This fork maps `MARKDOWN_TO_IMAGE_CHANNELS`, `MD2IMG_ENGINE`, and the image length limit; `MERGE_EMAIL_NOTIFICATION` remains outside the workflow mapping.
 
 #### Push Behavior Configuration
 

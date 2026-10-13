@@ -84,6 +84,7 @@ def test_supplements_reach_prompt_report_and_payload_with_explicit_market_units(
 
 def response(rows):
     result = MagicMock()
+    result.status_code = 200
     result.json.return_value = rows
     return result
 
@@ -124,8 +125,56 @@ def test_official_daily_data_does_not_mix_dates():
                                      [dict(TWSE_ROW, Date='invalid')]])
 def test_invalid_official_data_is_not_presented_as_a_zero_quote(bad_rows):
     with patch('data_provider.taiwan_market.get_effective_trading_date', return_value=date(2026, 10, 7)), \
-         patch('data_provider.taiwan_market.requests.get', side_effect=[response(bad_rows), response([])]):
+         patch('data_provider.taiwan_market.requests.get', side_effect=[response(bad_rows), response([]), response({'stat': 'no data'})]):
         assert get_tw_market_indices() == []
+
+
+def history_payload(day='115/10/07', close='49,806.37'):
+    return {'stat': 'OK', 'date': '20261007', 'hints': '單位：元、股', 'fields': ['日期', '成交股數', '成交金額', '成交筆數', '發行量加權股價指數', '漲跌點數'],
+            'data': [[day, '10,357,959,027', '986,280,041,197', '100', close, '-16.18']]}
+
+
+def test_lagging_twse_openapi_uses_date_query_and_preserves_same_day():
+    with patch('data_provider.taiwan_market.get_effective_trading_date', return_value=date(2026, 10, 7)), \
+         patch('data_provider.taiwan_market.requests.get', side_effect=[
+             response([dict(TWSE_ROW, Date='1151006')]), response([TPEX_ROW]), response(history_payload())]) as get:
+        items = get_tw_market_indices()
+    assert [item['code'] for item in items] == ['TWII', 'TWOII']
+    assert items[0]['current'] == 49806.37 and items[0]['amount'] == 986280041197
+    assert 'date=20261007' in items[0]['source_url']
+    assert get.call_args.kwargs['params']['date'] == '20261007'
+    assert all(item['trade_date'] == '2026-10-07' for item in items)
+
+
+@pytest.mark.parametrize('bad_history', [history_payload('115/10/06'), history_payload(close='NaN'),
+                                        dict(history_payload(), hints='單位：千元'),
+                                        dict(history_payload(), date='20261006'),
+                                        {'stat': 'OK', 'fields': [], 'data': []}, {'stat': 'no data'}])
+def test_history_fallback_rejects_wrong_day_and_invalid_values(bad_history):
+    with patch('data_provider.taiwan_market.get_effective_trading_date', return_value=date(2026, 10, 7)), \
+         patch('data_provider.taiwan_market.requests.get', side_effect=[
+             response([]), response([TPEX_ROW]), response(bad_history)]):
+        assert [item['code'] for item in get_tw_market_indices()] == ['TWOII']
+
+
+def test_primary_timeout_recovers_from_history_with_prior_volume_comparison():
+    history = history_payload()
+    history['data'].insert(0, ['115/10/06', '100', '200', '1', '49,822.55', '110.51'])
+    with patch('data_provider.taiwan_market.get_effective_trading_date', return_value=date(2026, 10, 7)), \
+         patch('data_provider.taiwan_market.requests.get', side_effect=[
+             requests.Timeout('primary unavailable'), response([TPEX_ROW]), response(history)]):
+        items = get_tw_market_indices()
+    assert items[0]['volume_comparison']['previous_session']['trade_date'] == '2026-10-06'
+    assert items[0]['amount_currency'] == 'TWD'
+
+
+def test_duplicate_requested_day_does_not_supply_a_quote():
+    history = history_payload()
+    history['data'].append(history['data'][0])
+    with patch('data_provider.taiwan_market.get_effective_trading_date', return_value=date(2026, 10, 7)), \
+         patch('data_provider.taiwan_market.requests.get', side_effect=[
+             response([]), response([TPEX_ROW]), response(history)]):
+        assert [item['code'] for item in get_tw_market_indices()] == ['TWOII']
 
 
 def test_tw_route_never_uses_chinese_fetcher_even_if_it_offers_data():

@@ -1091,6 +1091,31 @@ class TestEmailSender(unittest.TestCase):
         server.quit.assert_called_once()
 
 
+    @mock.patch("smtplib.SMTP_SSL")
+    def test_image_email_preserves_full_report_and_source_links(self, mock_smtp_ssl):
+        sender = EmailSender(_config(
+            email_sender="a@qq.com", email_password="p", email_receivers=["b@qq.com"],
+        ))
+        report = (
+            "[dsa-market-region]: # (tw)\n\n# 分析报告\n\n"
+            "持仓者可续抱；跌破508.95元且无法收复时，考虑减仓。\n\n"
+            "[官方来源](https://www.twse.com.tw/)"
+        )
+        self.assertTrue(sender._send_email_with_inline_image(b"PNG_BYTES", content=report))
+        msg = mock_smtp_ssl.return_value.send_message.call_args[0][0]
+        text = next(p for p in msg.walk() if p.get_content_type() == "text/plain").get_payload(decode=True).decode("utf-8")
+        body = next(p for p in msg.walk() if p.get_content_type() == "text/html").get_payload(decode=True).decode("utf-8")
+        self.assertIn("且無法收復時，考慮減倉", text)
+        self.assertIn("且無法收復時，考慮減倉", body)
+        self.assertNotIn("[dsa-market-region]", text + body)
+        self.assertIn('href="https://www.twse.com.tw/"', body)
+        self.assertLess(body.index('cid:report-image'), body.index("完整分析報告"))
+        self.assertIn("max-width:100%;", body)
+        images = [p for p in msg.walk() if p.get_content_type() == "image/png"]
+        self.assertEqual(len(images), 1)
+        self.assertEqual(images[0]['Content-ID'], '<report-image>')
+
+
 class TestNtfySender(unittest.TestCase):
     """Unit tests for NtfySender."""
 

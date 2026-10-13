@@ -2057,6 +2057,14 @@ def build_share_image_html(
     """
 
     generated = generated_on or date.today()
+    from src.taiwan_infographic import build_taiwan_infographic, taiwan_card_kind
+
+    taiwan_kind = taiwan_card_kind(markdown_text, structured_payload)
+    if taiwan_kind:
+        return build_taiwan_infographic(
+            markdown_text, structured_payload or {}, taiwan_kind,
+            branding or ShareImageBranding(),
+        )
     language = _poster_language(markdown_text, structured_payload)
     headings = _extract_sections(markdown_text)
     first_title = headings[0][0] if headings else "股票智能分析报告"

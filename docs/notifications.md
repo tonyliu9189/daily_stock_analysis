@@ -113,9 +113,11 @@ Discord 长报告发送复用现有分片链路：单条 `content` 运行时不�
 
 <!-- notification-actions-env-table:end -->
 
-默认 workflow 仍不映射 `MARKDOWN_TO_IMAGE_CHANNELS` 与 `MERGE_EMAIL_NOTIFICATION`。它们是发送形态或聚合行为开关，不是渠道凭证；在 Actions 中自动开始读取同名 Secret/Variable 会引入额外行为变化。
+此 fork 的 workflow 已在 job 層映射 `MARKDOWN_TO_IMAGE_CHANNELS`，預設為 `telegram,email`，並安裝 Playwright 與中文字型。`MERGE_EMAIL_NOTIFICATION` 仍未映射；圖卡設定與上述渠道憑證表分開管理。
 
 ## 图片报告分享模板
+
+此 fork 的台股個股與市場總覽改用繁體中文重點資訊圖卡：以價位軸、法人買賣超長條、漲跌比例及類股強弱呈現資訊。Telegram 圖片成功時不重複發文字；轉圖失敗則回退文字。Email 保留圖卡、完整報告與來源連結。台股圖卡是重點摘要，完整操作條件仍保留；其他市場沿用下述分享模板。設定、資料限制及還原方式見 [台股資訊圖卡](taiwan-infographics.md)。
 
 配置 `MARKDOWN_TO_IMAGE_CHANNELS` 后，个股分析、聚合报告与大盘复盘会沿用现有通知路由，在转图阶段套用 1080px 宽的品牌分享模板。单只个股按“结论—点位—技术—风险—持仓”生成决策卡，大盘按“信号—指数—宽度—强弱板块—资金观察—重点跟踪—策略—风险”生成复盘卡；多股报告保留聚合布局。底部展示 GitHub 仓库地址、可选的小红书账号区域，以及“仅供研究交流，不构成投资建议”的风险提示。
 
@@ -124,7 +126,7 @@ Discord 长报告发送复用现有分片链路：单条 `content` 运行时不�
 - 结构化字段、缺失值行为、个股/大盘映射和本地预览示例见 [分享图片模板与数据填充](share-images.md)。
 - `wkhtmltoimage`、`markdown-to-file` 与 `playwright` 使用同一份海报 HTML；现有 `MD2IMG_ENGINE`、`MARKDOWN_TO_IMAGE_MAX_CHARS` 和转换失败后回退文本的行为不变。Playwright 模式需先安装 Web 依赖并执行 `npx playwright install chromium`。
 - 模板按正文长度生成长图，不会为适配固定画幅而截断报告。内容超过 `MARKDOWN_TO_IMAGE_MAX_CHARS` 时仍跳过转图。
-- GitHub Actions 默认仍不映射 `MARKDOWN_TO_IMAGE_CHANNELS`；如需在 fork 的工作流中启用，应显式补充环境变量映射并安装所选转图工具。
+- 此 fork 的 GitHub Actions 已映射 `MARKDOWN_TO_IMAGE_CHANNELS`，預設 `telegram,email`；設定 Repository Variable 為 `none` 可還原文字通知。
 
 ## CLI 诊断
 
@@ -318,7 +320,7 @@ Docker 场景可通过 `--env-file .env` / Compose `env_file` 注入通知相关
 
 默认 `00-daily-analysis.yml` 只读取表格中显式映射的 Secret / Variable。新增 repository Secret 或 Variable 后，只有变量名已经出现在 workflow `env:` 中才会进入运行进程；`STOCK_GROUP_N` / `EMAIL_GROUP_N` 这类任意编号变量不会自动导入。
 
-Secret 适合 token、password、webhook URL 等敏感项；Variable 适合 `WECHAT_MSG_TYPE`、`EMAIL_SENDER_NAME`、路由、降噪窗口和时区这类非敏感行为配置。`MARKDOWN_TO_IMAGE_CHANNELS` 与 `MERGE_EMAIL_NOTIFICATION` 默认不映射，如需在自己的 fork 中使用，应显式修改 workflow 并补充对应测试。
+Secret 適合 token、password、webhook URL 等敏感項；Variable 適合 `WECHAT_MSG_TYPE`、`EMAIL_SENDER_NAME`、路由、降噪窗口及時區等非敏感設定。此 fork 已在 job 層映射 `MARKDOWN_TO_IMAGE_CHANNELS`；`MERGE_EMAIL_NOTIFICATION` 仍未映射。
 
 ## Desktop
 

@@ -1124,9 +1124,9 @@ def test_dotted_us_ticker_is_preserved_in_stock_heading():
 @pytest.mark.parametrize(
     ("heading", "company", "code"),
     [
-        ("## 台积电 (2330.TW)", "台积电", "2330.TW"),
-        ("## 台塑化 (6505.TWO)", "台塑化", "6505.TWO"),
-        ("## 国泰永续高股息 (00878.TW)", "国泰永续高股息", "00878.TW"),
+        ("## 台积电 (2330.TW)", "臺積電", "2330.TW"),
+        ("## 台塑化 (6505.TWO)", "臺塑化", "6505.TWO"),
+        ("## 国泰永续高股息 (00878.TW)", "國泰永續高股息", "00878.TW"),
     ],
 )
 def test_suffix_stock_code_is_preserved_in_stock_heading(heading, company, code):
@@ -1137,6 +1137,8 @@ def test_suffix_stock_code_is_preserved_in_stock_heading(heading, company, code)
 
     assert company in html
     assert f'<span class="code">{code}</span>' in html
+    assert 'class="poster taiwan stock"' in html
+    assert '<html lang="zh-TW">' in html
 
 
 def test_korean_market_review_heading_uses_market_poster():

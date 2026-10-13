@@ -14,6 +14,7 @@ from email.mime.image import MIMEImage
 from email.header import Header
 from email.utils import formataddr
 import smtplib
+from opencc import OpenCC
 
 from data_provider.base import normalize_stock_code
 from src.config import Config
@@ -163,9 +164,11 @@ class EmailSender:
             # 生成主题
             if subject is None:
                 date_str = datetime.now().strftime('%Y-%m-%d')
-                subject = f"📈 股票智能分析报告 - {date_str}"
+                subject = f"📈 股票分析報告 - {date_str}"
 
-            sanitized_content = strip_hidden_markdown_metadata(content).strip()
+            sanitized_content = OpenCC('s2twp').convert(
+                strip_hidden_markdown_metadata(content).strip()
+            )
             
             # 将 Markdown 转换为简单 HTML
             html_content = markdown_to_html_document(sanitized_content)
@@ -226,7 +229,8 @@ class EmailSender:
             self._close_server(server)
 
     def _send_email_with_inline_image(
-        self, image_bytes: bytes, receivers: Optional[List[str]] = None
+        self, image_bytes: bytes, receivers: Optional[List[str]] = None,
+        *, content: str = "",
     ) -> bool:
         """Send email with inline image attachment (Issue #289)."""
         if not self._is_email_configured():
@@ -237,18 +241,22 @@ class EmailSender:
         server: Optional[smtplib.SMTP] = None
         try:
             date_str = datetime.now().strftime('%Y-%m-%d')
-            subject = f"📈 股票智能分析报告 - {date_str}"
+            subject = f"📈 股票分析報告 - {date_str}"
             msg = MIMEMultipart('related')
             msg['Subject'] = Header(subject, 'utf-8')
             msg['From'] = self._format_sender_address(sender)
             msg['To'] = ', '.join(receivers)
 
             alt = MIMEMultipart('alternative')
-            alt.attach(MIMEText('报告已生成，详见下方图片。', 'plain', 'utf-8'))
+            report = OpenCC('s2twp').convert(strip_hidden_markdown_metadata(content).strip())
+            alt.attach(MIMEText(report or '報告已產生，請查看資訊圖卡。', 'plain', 'utf-8'))
             html_body = (
-                '<p>报告已生成，详见下方图片（点击可查看大图）：</p>'
-                '<p><img src="cid:report-image" alt="股票分析报告" style="max-width:100%%;" /></p>'
+                '<p><img src="cid:report-image" alt="股票分析資訊圖卡" style="max-width:100%;height:auto;" /></p>'
             )
+            if report:
+                html_body = markdown_to_html_document(report).replace(
+                    '<body>', '<body>' + html_body + '<h2>完整分析報告</h2>', 1
+                )
             alt.attach(MIMEText(html_body, 'html', 'utf-8'))
             msg.attach(alt)
 

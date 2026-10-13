@@ -82,6 +82,8 @@ class TestPipelineEmailGroupImageRouting(unittest.TestCase):
         called_receivers = [kwargs.get("receivers") for _, kwargs in pipeline.notifier._send_email_with_inline_image.call_args_list]
         self.assertIn(["group@example.com"], called_receivers)
         self.assertIn(None, called_receivers)
+        for _, kwargs in pipeline.notifier._send_email_with_inline_image.call_args_list:
+            self.assertTrue(kwargs["content"].startswith("report:"))
 
     @patch("src.md2img.markdown_to_image", return_value=None)
     def test_send_notifications_email_group_falls_back_to_text_when_image_unavailable(self, _mock_md2img):

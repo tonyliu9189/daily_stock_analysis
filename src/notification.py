@@ -2612,7 +2612,9 @@ class NotificationService(
             elif email_stock_codes and self._stock_email_groups:
                 receivers = self.get_receivers_for_stocks(email_stock_codes)
             if use_image:
-                return self._send_email_with_inline_image(image_bytes, receivers=receivers)
+                return self._send_email_with_inline_image(
+                    image_bytes, receivers=receivers, content=sanitized_content
+                )
             return self.send_to_email(
                 sanitized_content,
                 receivers=receivers,

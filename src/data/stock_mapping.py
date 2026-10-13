@@ -12,6 +12,22 @@ from __future__ import annotations
 import re
 from typing import Dict, Tuple
 
+# Taiwan security display names; separate from company search aliases for ETFs.
+TAIWAN_SECURITY_NAME_MAP = {
+    # Taiwan: TWSE company short names and ETF security short names.
+    # https://openapi.twse.com.tw/v1/opendata/t187ap03_L
+    # https://www.twse.com.tw/zh/ETFortune/etfInfo/{code}
+    "2330.TW": "台積電",
+    "2337.TW": "旺宏",
+    "2344.TW": "華邦電",
+    "2408.TW": "南亞科",
+    "2409.TW": "友達",
+    "2481.TW": "強茂",
+    "6116.TW": "彩晶",
+    "00918.TW": "大華優利高填息30",
+    "009828.TW": "中信台日韓PCB",
+}
+
 # Stock code -> name mapping (common stocks)
 STOCK_NAME_MAP = {
     # === A-shares ===

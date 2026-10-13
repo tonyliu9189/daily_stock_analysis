@@ -4118,7 +4118,7 @@ class StockAnalysisPipeline:
                                     )
                                     if use_image:
                                         return self.notifier._send_email_with_inline_image(
-                                            grp_image_bytes, receivers=receivers
+                                            grp_image_bytes, receivers=receivers, content=grp_report
                                         )
                                     return self.notifier.send_to_email(
                                         strip_hidden_markdown_metadata(grp_report).strip(),
@@ -4146,7 +4146,9 @@ class StockAnalysisPipeline:
                                     channel, image_bytes
                                 )
                                 if use_image:
-                                    return self.notifier._send_email_with_inline_image(image_bytes)
+                                    return self.notifier._send_email_with_inline_image(
+                                        image_bytes, content=report
+                                    )
                                 return self.notifier.send_to_email(
                                     strip_hidden_markdown_metadata(report).strip()
                                 )

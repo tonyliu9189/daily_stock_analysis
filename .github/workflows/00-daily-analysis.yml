@@ -34,6 +34,9 @@ jobs:
     env:
       # 報告、檔名與程式日誌使用台灣時間；cron 仍按 UTC 解讀。
       TZ: Asia/Taipei
+      MARKDOWN_TO_IMAGE_CHANNELS: ${{ vars.MARKDOWN_TO_IMAGE_CHANNELS || secrets.MARKDOWN_TO_IMAGE_CHANNELS || 'telegram,email' }}
+      MD2IMG_ENGINE: ${{ vars.MD2IMG_ENGINE || secrets.MD2IMG_ENGINE || 'playwright' }}
+      MARKDOWN_TO_IMAGE_MAX_CHARS: ${{ vars.MARKDOWN_TO_IMAGE_MAX_CHARS || '15000' }}
     # 兼容误将 STOCK_LIST 配到同名 Environment variables 的场景；
     # 推荐位置仍是 Settings -> Secrets and variables -> Actions -> Repository variables。
     environment: STOCK_LIST
@@ -62,6 +65,21 @@ jobs:
       - name: 创建必要目录
         run: |
           mkdir -p data logs reports
+
+      - name: 設定資訊圖卡 Node 環境
+        if: env.MD2IMG_ENGINE == 'playwright' && env.MARKDOWN_TO_IMAGE_CHANNELS != 'none'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: 安裝資訊圖卡瀏覽器與中文字型
+        if: env.MD2IMG_ENGINE == 'playwright' && env.MARKDOWN_TO_IMAGE_CHANNELS != 'none'
+        continue-on-error: true
+        working-directory: apps/dsa-web
+        run: |
+          npm ci
+          npx playwright install --with-deps --only-shell chromium
+          sudo apt-get install -y fonts-noto-cjk
       
       - name: 执行股票分析
         env:
@@ -426,7 +444,7 @@ jobs:
           REPORT_TYPE: ${{ vars.REPORT_TYPE || secrets.REPORT_TYPE || 'simple' }}
           REPORT_LANGUAGE: ${{ vars.REPORT_LANGUAGE || secrets.REPORT_LANGUAGE || '' }}
           REPORT_SHOW_LLM_MODEL: ${{ vars.REPORT_SHOW_LLM_MODEL || secrets.REPORT_SHOW_LLM_MODEL || 'true' }}
-          SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'false' }}
+          SINGLE_STOCK_NOTIFY: ${{ vars.SINGLE_STOCK_NOTIFY || secrets.SINGLE_STOCK_NOTIFY || 'true' }}
           MARKET_REVIEW_ENABLED: ${{ vars.MARKET_REVIEW_ENABLED || secrets.MARKET_REVIEW_ENABLED || 'true' }}
           ANALYSIS_DELAY: ${{ vars.ANALYSIS_DELAY || secrets.ANALYSIS_DELAY || '0' }}
           TRADING_DAY_CHECK_ENABLED: ${{ vars.TRADING_DAY_CHECK_ENABLED || secrets.TRADING_DAY_CHECK_ENABLED || 'true' }}
