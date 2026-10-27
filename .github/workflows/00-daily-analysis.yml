@@ -4,7 +4,6 @@ on:
   # 定时触发 - 每天北京时间 18:00 (UTC 10:00)
   schedule:
     - cron: '0 10 * * 1-5'     # 周一到周五，UTC 10:00 = 北京时间 18:00
-    - cron: '7,22,37,52 * * * *' # 短期測試；驗證結束後移除
   
   # 手动触发
   workflow_dispatch:
@@ -26,30 +25,11 @@ on:
 
 # 并发控制：同一时间只运行一个分析任务
 concurrency:
-  group: ${{ github.event_name == 'schedule' && github.event.schedule == '7,22,37,52 * * * *' && 'stock-analysis-schedule-probe' || 'stock-analysis' }}
+  group: stock-analysis
   cancel-in-progress: false
 
 jobs:
-  schedule_probe:
-    name: 短期自動排程測試
-    if: github.event_name == 'schedule' && github.event.schedule == '7,22,37,52 * * * *'
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    permissions:
-      contents: read
-    steps:
-      - name: 記錄自動啟動時間
-        env:
-          PROBE_EVENT: ${{ github.event_name }}
-          PROBE_SCHEDULE: ${{ github.event.schedule }}
-        run: |
-          echo "事件：$PROBE_EVENT"
-          echo "排程：$PROBE_SCHEDULE"
-          date -u '+UTC：%Y-%m-%d %H:%M:%S'
-          TZ=Asia/Taipei date '+台灣時間：%Y-%m-%d %H:%M:%S %Z'
-
   analyze:
-    if: github.event_name != 'schedule' || github.event.schedule == '0 10 * * 1-5'
     runs-on: ubuntu-latest
     env:
       # 報告、檔名與程式日誌使用台灣時間；cron 仍按 UTC 解讀。
