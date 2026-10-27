@@ -1911,7 +1911,7 @@ class TestTelegramSender(unittest.TestCase):
         second_payload = mock_post.call_args_list[1][1]["json"]
         self.assertEqual(first_payload["parse_mode"], "Markdown")
         self.assertNotIn("parse_mode", second_payload)
-        self.assertEqual(second_payload["text"], "*ST宝实")
+        self.assertEqual(second_payload["text"], "*ST寶實")
 
     @mock.patch("src.notification_sender.telegram_sender.requests.post")
     def test_send_plain_text_fallback_keeps_original_text_after_legacy_markdown_error(self, mock_post):
@@ -1930,8 +1930,8 @@ class TestTelegramSender(unittest.TestCase):
         self.assertTrue(result)
         first_payload = mock_post.call_args_list[0][1]["json"]
         second_payload = mock_post.call_args_list[1][1]["json"]
-        self.assertEqual(first_payload["text"], "关注 *AAPL* \\(未闭合\\)")
-        self.assertEqual(second_payload["text"], content)
+        self.assertEqual(first_payload["text"], "關注 *AAPL* \\(未閉合\\)")
+        self.assertEqual(second_payload["text"], "關注 **AAPL** (未閉合)")
 
     @mock.patch("src.notification_sender.telegram_sender.requests.post")
     def test_send_uses_legacy_telegram_report_formatter(self, mock_post):
@@ -1952,11 +1952,11 @@ class TestTelegramSender(unittest.TestCase):
         self.assertTrue(result)
         payload = mock_post.call_args.kwargs["json"]
         rendered = payload["text"]
-        self.assertIn("日报", rendered)
-        self.assertIn("📊 分析结果摘要", rendered)
-        self.assertIn("| 股票 | 信号 |", rendered)
-        self.assertIn("[详情](https://example.com/report)", rendered)
-        self.assertNotIn("# 日报", rendered)
+        self.assertIn("日報", rendered)
+        self.assertIn("📊 分析結果摘要", rendered)
+        self.assertIn("| 股票 | 訊號 |", rendered)
+        self.assertIn("[詳情](https://example.com/report)", rendered)
+        self.assertNotIn("# 日報", rendered)
 
     @mock.patch("src.notification_sender.telegram_sender.requests.post")
     def test_send_strips_hidden_market_region_metadata_from_text_payload(self, mock_post):

@@ -1,0 +1,156 @@
+name: 上游版本自動更新
+
+on:
+  schedule:
+    - cron: '23 23 * * *'
+  workflow_dispatch:
+    inputs:
+      rehearsal:
+        description: '只演練合併與測試，不變更正式版本'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-release-update
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.ref_name == github.event.repository.default_branch &&
+      (github.event_name == 'workflow_dispatch' || vars.UPSTREAM_SYNC_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      ready: ${{ steps.prepare.outputs.ready }}
+      base: ${{ steps.prepare.outputs.base }}
+      candidate: ${{ steps.prepare.outputs.candidate }}
+      upstream: ${{ steps.prepare.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: 準備候選版本，保護客製與工作流程
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/upstream_update.py prepare --directory "${RUNNER_TEMP}/candidate"
+      - uses: actions/upload-artifact@v4
+        if: steps.prepare.outputs.ready == 'true'
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/candidate/
+          retention-days: 7
+          if-no-files-found: error
+
+  test:
+    needs: prepare
+    if: needs.prepare.outputs.ready == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # Candidate code runs only here: no write permissions, model keys or notification secrets.
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: 核對候選版本並保留正式版驗證程式
+        env:
+          EXPECTED_BASE: ${{ needs.prepare.outputs.base }}
+          EXPECTED_CANDIDATE: ${{ needs.prepare.outputs.candidate }}
+          EXPECTED_UPSTREAM: ${{ needs.prepare.outputs.upstream }}
+        run: |
+          python scripts/upstream_update.py validate --directory "${RUNNER_TEMP}/candidate"
+          cp scripts/ci_gate.sh "${RUNNER_TEMP}/fork-ci-gate.sh"
+          cp scripts/upstream_update.py "${RUNNER_TEMP}/fork-updater.py"
+          cp scripts/upstream_offline_checks.sh "${RUNNER_TEMP}/fork-offline-checks.sh"
+          git checkout --detach "$EXPECTED_CANDIDATE"
+      - name: 安裝測試依賴
+        run: python -m pip install -r .github/requirements-ci.txt
+      - name: 隔離外網執行必要回歸與完整離線測試
+        run: |
+          sudo unshare --net bash -c '
+            ip link set lo up
+            exec setpriv --reuid="$1" --regid="$2" --init-groups --no-new-privs \
+              env PATH="$3" RUNNER_TEMP="$5" bash "$4"
+          ' -- "$(id -u)" "$(id -g)" "$PATH" "${RUNNER_TEMP}/fork-offline-checks.sh" "$RUNNER_TEMP"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Web 檢查與建置
+        working-directory: apps/dsa-web
+        run: |
+          npm ci
+          npm run lint
+          npm run build
+
+  publish:
+    needs: [prepare, test]
+    if: needs.test.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # Always execute the trusted original script, never candidate code with write credentials.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-candidate
+          path: ${{ runner.temp }}/candidate
+      - name: 演練或原子更新正式版本與舊版備份
+        env:
+          EXPECTED_BASE: ${{ needs.prepare.outputs.base }}
+          EXPECTED_CANDIDATE: ${{ needs.prepare.outputs.candidate }}
+          EXPECTED_UPSTREAM: ${{ needs.prepare.outputs.upstream }}
+          GH_TOKEN: ${{ github.token }}
+          REHEARSAL: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearsal }}
+        run: |
+          if [ "$REHEARSAL" = 'true' ]; then
+            python scripts/upstream_update.py promote --rehearsal --directory "${RUNNER_TEMP}/candidate"
+          else
+            gh auth setup-git
+            python scripts/upstream_update.py promote --directory "${RUNNER_TEMP}/candidate"
+          fi
+
+  notify:
+    needs: [prepare, test, publish]
+    if: >-
+      always() && needs.prepare.result != 'skipped' &&
+      (needs.prepare.outputs.ready == 'true' || needs.prepare.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Telegram 更新結果通知
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          TEST_RESULT: ${{ needs.test.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          REHEARSAL: ${{ github.event_name == 'workflow_dispatch' && inputs.rehearsal }}
+        run: python scripts/upstream_update.py notify
